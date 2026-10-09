@@ -129,28 +129,48 @@ This is a real improvement on `Bash(gh issue edit:*)` -- the number is pinned an
 
 ## Example: Bounded Pattern
 
-A bound means the command has **no path to a different target**, which is achieved by taking the target out of the model's reach rather than by naming it in the prefix. Have the agent write its output to a file and let a wrapper do the mutation with the object taken from the event:
+A bound means the command has **no path to a different target**, which is achieved by taking
+the target out of the model's reach rather than by naming it in the prefix. Two things have to
+hold, and the second is the one that is easy to miss: the object must come from the event, **and
+the agent must not be able to rewrite the enforcement code itself.**
+
+A wrapper script that lives in the repository only bounds the agent if the agent cannot write
+to it. If the same grant includes `Write` -- or any other capability that can reach the
+script's path -- the agent can replace the wrapper with one that edits an arbitrary issue, and
+the prefix that looked like a bound now bounds nothing. The bound is on the *capability set*,
+not on the prefix.
+
+So the wrapper is provisioned **outside the model's writable tree** by a step that runs first,
+and the agent's tool grant carries no write at all:
 
 ```yaml
+      - name: Provision the triage wrapper outside the agent's writable tree
+        env:
+          TRIAGE_LABEL_SH: ${{ runner.temp }}/triage-label.sh
+        run: |
+          cat > "$TRIAGE_LABEL_SH" <<'WRAPPER'
+          #!/usr/bin/env bash
+          # The object comes from the event, never from the model.
+          set -euo pipefail
+          gh issue edit "$ISSUE_NUMBER" --add-label "$1"
+          WRAPPER
+          chmod 0555 "$TRIAGE_LABEL_SH"
+
       - uses: anthropics/claude-code-action@v1
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          TRIAGE_LABEL_SH: ${{ runner.temp }}/triage-label.sh
         with:
           allowed_non_write_users: ${{ github.event.issue.user.login }}
-          claude_args: --allowedTools "Read,Write,Bash(./scripts/triage-label.sh:*)"
+          claude_args: --allowedTools "Read,Bash(${{ runner.temp }}/triage-label.sh:*)"
 ```
 
-```bash
-#!/usr/bin/env bash
-# triage-label.sh -- the object comes from the event, never from the model.
-set -euo pipefail
-gh issue edit "$ISSUE_NUMBER" --add-label "$1"
-```
-
-The script reads one label and nothing else, so no argument the model supplies can change
-which issue is edited or which repository it lives in. The prefix is a bound here because
-the remainder has no target in it -- which is the property to check for, and the one the
-prefix-names-a-target patterns above do not have.
+The grant is `Read` plus one runner-temp prefix -- **no `Write`**, so there is no path by which
+the model can replace the wrapper. The script itself reads one label and nothing else, so no
+argument the model supplies can change which issue is edited or which repository it lives in.
+The prefix is a bound here because the remainder has no target in it *and* the code behind it
+is fixed -- which is the property to check for, and the one the prefix-names-a-target patterns
+above do not have.
 
 ## False Positives
 
