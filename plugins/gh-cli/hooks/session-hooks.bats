@@ -120,8 +120,8 @@ CLEANUP_HOOK="${BATS_TEST_DIRNAME}/cleanup-clones.sh"
   # every Bash call. Firing at both files, then at the first again, covers
   # startup plus the resume/compact re-fires that mint a second file.
   for f in "${session_env}/sessionstart-hook-1.sh" \
-           "${session_env}/sessionstart-hook-2.sh" \
-           "${session_env}/sessionstart-hook-1.sh"; do
+    "${session_env}/sessionstart-hook-2.sh" \
+    "${session_env}/sessionstart-hook-1.sh"; do
     run bash -c 'CLAUDE_ENV_FILE="$1" && export CLAUDE_ENV_FILE && echo "{\"session_id\":\"abc123\"}" | "$2"' _ "$f" "$PERSIST_HOOK"
     [[ $status -eq 0 ]]
   done
