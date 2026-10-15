@@ -319,3 +319,60 @@ wget https://github.com/owner/repo/archive/t.zip"
   run_curl_hook "curl -sSfL https://github.com/owner/repo/archive/main.tar.gz | tee /tmp/f"
   assert_deny
 }
+
+# -----------------------------------------------------------------------------
+# Two heredoc shapes are not inert and must keep being matched
+# -----------------------------------------------------------------------------
+
+@test "curl: denies a curl inside a quoted heredoc handed to bash" {
+  run_curl_hook "bash <<'EOF'
+curl -sSfL https://github.com/owner/repo/archive/main.tar.gz | tar xz
+EOF"
+  assert_deny
+}
+
+@test "curl: denies a curl inside an unquoted heredoc handed to sh" {
+  run_curl_hook "sh <<EOF
+curl https://api.github.com/repos/owner/repo/pulls
+EOF"
+  assert_deny
+}
+
+@test "curl: denies a curl inside a heredoc handed to dash with -s" {
+  run_curl_hook "dash -s <<'EOF'
+curl https://github.com/owner/repo/archive/main.tar.gz
+EOF"
+  assert_deny
+}
+
+@test "curl: denies an interpreter heredoc behind sudo" {
+  run_curl_hook "sudo bash <<'EOF'
+curl https://github.com/owner/repo/archive/main.tar.gz
+EOF"
+  assert_deny
+}
+
+@test "curl: denies a command substitution in an unquoted heredoc" {
+  run_curl_hook "cat > /tmp/f <<EOF
+\$(curl -sSfL https://github.com/owner/repo/archive/main.tar.gz)
+EOF"
+  assert_deny
+}
+
+@test "curl: denies a backtick substitution in an unquoted heredoc" {
+  run_curl_hook "cat > /tmp/f <<EOF
+version=\`curl -s https://api.github.com/repos/owner/repo/releases\`
+EOF
+cat /tmp/f"
+  assert_deny
+}
+
+# A quoted delimiter disables expansion, so the same text really is literal file
+# content and the hook must stay out of the way. Denying here would be the
+# original false positive wearing a different hat.
+@test "curl: allows a command substitution written as literal text in a quoted heredoc" {
+  run_curl_hook "cat > /tmp/f <<'EOF'
+\$(curl -sSfL https://github.com/owner/repo/archive/main.tar.gz)
+EOF"
+  assert_allow
+}
