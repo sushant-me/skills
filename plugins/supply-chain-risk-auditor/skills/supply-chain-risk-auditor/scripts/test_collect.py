@@ -993,6 +993,19 @@ def test_enrich_npm_labels_a_latest_release_fallback():
     assert "from the latest release" in dep.signals["install_script"].detail
 
 
+def test_enrich_npm_scopes_the_no_script_claim_to_what_metadata_shows():
+    """A clean install-script verdict must not claim more than the registry document knows."""
+    doc = {"dist-tags": {"latest": "2.0.0"}, "versions": {"2.0.0": {"scripts": {"test": "jest"}}}}
+    dep = _npm_signals(
+        {"https://registry.npmjs.org/": doc},
+        Dependency(ecosystem="npm", name="pkg", version="2.0.0", version_source="lockfile"),
+    )
+    detail = dep.signals["install_script"].detail
+    assert dep.signals["install_script"].state is State.CLEAN
+    assert "registry metadata" in detail
+    assert "node-gyp" in detail
+
+
 def test_enrich_npm_reads_the_pinned_release_and_does_not_label_a_fallback():
     doc = {
         "dist-tags": {"latest": "2.0.0"},

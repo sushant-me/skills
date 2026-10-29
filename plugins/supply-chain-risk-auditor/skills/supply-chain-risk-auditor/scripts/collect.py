@@ -952,8 +952,12 @@ def _npm_release_signals(dep: Dependency, meta: dict) -> None:
             True,
         )
     else:
+        # Metadata-only: an implicit `node-gyp` rebuild is not visible without the
+        # tarball, so the negative claim is scoped to what the registry document shows.
         dep.signals["install_script"] = Signal.clean(
-            f"no install-time lifecycle script{fallback}", False
+            "no install-time lifecycle script in the registry metadata; an implicit "
+            f"node-gyp build is not visible without the package's source{fallback}",
+            False,
         )
 
 
