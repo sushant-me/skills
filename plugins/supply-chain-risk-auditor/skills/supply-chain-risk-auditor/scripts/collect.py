@@ -910,6 +910,65 @@ def _npm_exact_version(dep: Dependency) -> str | None:
     return None
 
 
+def _npm_release_signals(dep: Dependency, meta: dict) -> None:
+    """Deprecation and install scripts, read from the release the project installs.
+
+    The two are kept in one helper because they share the selection verdict: when the
+    project's release is not published, neither can be stated, and substituting another
+    release's values would describe a version the project does not install.
+    """
+    if meta["selection"] == "unassessable":
+        reason = meta["selection_reason"] or "the selected release is not published"
+        for criterion in ("deprecated", "install_script"):
+            dep.signals[criterion] = Signal.unassessable(reason)
+        return
+
+    # Say which release these properties describe: a latest-release fallback is a
+    # different claim from "this is the pinned release's status".
+    fallback = (
+        " (from the latest release: the project resolution gave no exact version)"
+        if meta["selection"] == "latest-fallback"
+        else ""
+    )
+    dep.signals["deprecated"] = (
+        Signal.flagged(
+            f"deprecated by its maintainers: {meta['deprecated']}{fallback}",
+            meta["deprecated"],
+        )
+        if meta["deprecated"]
+        else Signal.clean(f"not deprecated{fallback}", False)
+    )
+
+    if meta["has_install_script"] is None:
+        # Neither format field is present, so the document does not answer the question.
+        dep.signals["install_script"] = Signal.unassessable(
+            "the registry document for this release carries neither `scripts` nor "
+            "`hasInstallScript`, so whether installing it runs a script is unknown"
+        )
+    elif meta["has_install_script"]:
+        hooks = ", ".join(meta["install_scripts"]) or "a lifecycle hook"
+        dep.signals["install_script"] = Signal.flagged(
+            f"runs {hooks} on install; `npm ci --ignore-scripts` prevents execution{fallback}",
+            True,
+        )
+    else:
+        dep.signals["install_script"] = Signal.clean(
+            f"no install-time lifecycle script{fallback}", False
+        )
+
+
+def _npm_provenance_signal(meta: dict) -> Signal:
+    """Publish provenance describes the current release, which may be unreadable."""
+    if meta["provenance"] is None:
+        return Signal.unassessable(
+            "the registry carries no latest release, so publish provenance cannot be read"
+        )
+    return Signal.clean(
+        "publishes with provenance" if meta["provenance"] else "no publish provenance",
+        meta["provenance"],
+    )
+
+
 def enrich_npm(http: sources.Http, dep: Dependency, token: str | None) -> None:
     """npm publishes the richest metadata of the three ecosystems."""
     try:
@@ -923,55 +982,9 @@ def enrich_npm(http: sources.Http, dep: Dependency, token: str | None) -> None:
         )
         dep.signals["provenance"] = Signal.unassessable(reason)
     else:
-        if meta["selection"] == "unassessable":
-            # The release the project installs is not published, so its properties are
-            # unknown. Substituting another release's values would describe the wrong one.
-            for criterion in ("deprecated", "install_script"):
-                dep.signals[criterion] = Signal.unassessable(
-                    meta["selection_reason"] or "the selected release is not published"
-                )
-        else:
-            # Say which release these properties describe. A latest-release fallback is
-            # a different claim from "this is the pinned release's status".
-            fallback = (
-                " (from the latest release: the project resolution gave no exact version)"
-                if meta["selection"] == "latest-fallback"
-                else ""
-            )
-            dep.signals["deprecated"] = (
-                Signal.flagged(
-                    f"deprecated by its maintainers: {meta['deprecated']}{fallback}",
-                    meta["deprecated"],
-                )
-                if meta["deprecated"]
-                else Signal.clean(f"not deprecated{fallback}", False)
-            )
-            if meta["has_install_script"] is None:
-                dep.signals["install_script"] = Signal.unassessable(
-                    "the registry document for this release carries neither `scripts` nor "
-                    "`hasInstallScript`, so whether installing it runs a script is unknown"
-                )
-            elif meta["has_install_script"]:
-                hooks = ", ".join(meta["install_scripts"]) or "a lifecycle hook"
-                dep.signals["install_script"] = Signal.flagged(
-                    f"runs {hooks} on install; `npm ci --ignore-scripts` prevents execution"
-                    f"{fallback}",
-                    True,
-                )
-            else:
-                dep.signals["install_script"] = Signal.clean(
-                    f"no install-time lifecycle script{fallback}", False
-                )
+        _npm_release_signals(dep, meta)
         dep.signals["publisher_concentration"] = _concentration_signal(meta)
-        if meta["provenance"] is None:
-            dep.signals["provenance"] = Signal.unassessable(
-                "the registry carries no latest release, so publish provenance cannot be read"
-            )
-        else:
-            dep.signals["provenance"] = Signal.clean(
-                "publishes with provenance" if meta["provenance"] else "no publish provenance",
-                meta["provenance"],
-            )
+        dep.signals["provenance"] = _npm_provenance_signal(meta)
     try:
         dep.signals["downloads"] = _download_signal(sources.npm_downloads(http, dep.name))
     except sources.Unavailable as exc:
